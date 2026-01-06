@@ -184,21 +184,29 @@ export default function Home() {
                                 <p>{error}</p>
                             </div>
                         ) : searchResults.length > 0 ? (
-                            <div className="list">
-                                {searchResults.map((result, index) => (
-                                    <SearchResultCard
-                                        key={index}
-                                        result={result}
-                                        onImport={() => handleImport(result)}
-                                        isImporting={importingUrl === result.url}
-                                    />
-                                ))}
-                            </div>
+                            <>
+                                <div className="list">
+                                    {searchResults.map((result, index) => (
+                                        <SearchResultCard
+                                            key={index}
+                                            result={result}
+                                            onImport={() => handleImport(result)}
+                                            isImporting={importingUrl === result.url}
+                                        />
+                                    ))}
+                                </div>
+                                {/* 日文站点快捷搜索 */}
+                                <JapaneseTabSites query={searchQuery} />
+                            </>
                         ) : (
-                            <div className="empty-state">
-                                <div className="empty-state-icon">📭</div>
-                                <p>No results found</p>
-                            </div>
+                            <>
+                                <div className="empty-state">
+                                    <div className="empty-state-icon">📭</div>
+                                    <p>No results found</p>
+                                </div>
+                                {/* 日文站点快捷搜索 */}
+                                <JapaneseTabSites query={searchQuery} />
+                            </>
                         )}
                     </div>
                 )}
@@ -325,4 +333,77 @@ function getTypeColor(type) {
         default:
             return '#95a5a6';
     }
+}
+
+/**
+ * 日文站点快捷搜索组件
+ * 提供 U-Fret、ChordWiki 等日文吉他谱站点的直接搜索入口
+ */
+function JapaneseTabSites({ query }) {
+    const sites = [
+        {
+            name: 'U-Fret',
+            icon: '🇯🇵',
+            description: '日本最大吉他谱站',
+            getUrl: (q) => `https://www.ufret.jp/search.php?key=${encodeURIComponent(q)}`
+        },
+        {
+            name: 'ChordWiki',
+            icon: '📖',
+            description: '和弦维基',
+            getUrl: (q) => `https://ja.chordwiki.org/wiki?c=search&t=${encodeURIComponent(q)}`
+        },
+        {
+            name: 'J-Total',
+            icon: '🎸',
+            description: '歌词+和弦',
+            getUrl: (q) => `https://music.j-total.net/search.cgi?word=${encodeURIComponent(q)}`
+        }
+    ];
+
+    if (!query?.trim()) return null;
+
+    return (
+        <div style={{
+            marginTop: '24px',
+            padding: '16px',
+            background: 'var(--bg-secondary)',
+            borderRadius: '12px'
+        }}>
+            <div style={{
+                marginBottom: '12px',
+                fontSize: '14px',
+                color: 'var(--text-muted)'
+            }}>
+                🇯🇵 在日文站点搜索「{query}」
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {sites.map((site) => (
+                    <a
+                        key={site.name}
+                        href={site.getUrl(query)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary"
+                        style={{
+                            textDecoration: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <span>{site.icon}</span>
+                        <span>{site.name}</span>
+                    </a>
+                ))}
+            </div>
+            <p style={{
+                marginTop: '8px',
+                fontSize: '12px',
+                color: 'var(--text-muted)'
+            }}>
+                💡 提示：从日文站复制谱面内容后，点击 ➕ 手动导入
+            </p>
+        </div>
+    );
 }
