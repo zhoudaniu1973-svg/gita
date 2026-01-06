@@ -86,9 +86,16 @@ export default function Home() {
 
             const data = await res.json();
 
+            console.log('Fetch API response:', data);
+
             if (data.error || !data.content) {
-                // 无法解析，跳转到原网页
-                window.open(result.url, '_blank');
+                // 解析失败，询问用户是否跳转
+                const shouldOpen = window.confirm(
+                    `无法自动解析此页面\n\n原因: ${data.error || '未提取到内容'}\n\n是否打开原网页手动查看？`
+                );
+                if (shouldOpen) {
+                    window.open(result.url, '_blank');
+                }
                 return;
             }
 
