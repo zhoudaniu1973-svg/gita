@@ -18,6 +18,34 @@ app.use(express.json());
 
 // ===== API 端点 =====
 
+// 可解析域名优先级表
+const PARSE_PRIORITY = {
+    'j-total.net': 100,
+    'ufret.jp': 90,
+    'chordwiki.jpn.org': 10,
+    'ultimate-guitar.com': 5,
+    'songsterr.com': 5
+};
+
+/**
+ * 检测是否包含日文字符
+ */
+function hasJapanese(text) {
+    return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+}
+
+/**
+ * 构建搜索关键词（日文/英文自动适配）
+ */
+function buildSearchQuery(q) {
+    const trimmed = q.trim();
+    if (hasJapanese(trimmed)) {
+        return `${trimmed} コード`;
+    } else {
+        return `${trimmed} guitar chords`;
+    }
+}
+
 // 搜索 API
 app.get('/api/search', async (req, res) => {
     const { q } = req.query;
@@ -34,7 +62,9 @@ app.get('/api/search', async (req, res) => {
             return res.status(500).json({ error: 'Missing API configuration' });
         }
 
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(q + ' guitar tab OR guitar chords')}&num=10`;
+        // 构建搜索关键词（日文/英文自动适配）
+        const searchQuery = buildSearchQuery(q);
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(searchQuery)}&num=10`;
 
         const response = await fetch(searchUrl);
         const data = await response.json();
@@ -65,8 +95,10 @@ app.get('/api/search', async (req, res) => {
             };
         });
 
-        // 排序
+        // 按分数排序（高分在前 = 可解析优先）
         results.sort((a, b) => b.score - a.score);
+
+        // 移除分数字段
         const cleanResults = results.map(({ score, ...rest }) => rest);
 
         res.json({ results: cleanResults });

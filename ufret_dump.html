@@ -1287,7 +1287,7 @@ function my_songbook_set(){
 		return;
     }
     
-        my_songbook['175119'] = "Imprisoned XII,Ave Mujica,1767722004";
+        my_songbook['175119'] = "Imprisoned XII,Ave Mujica,1767760760";
     	localStorage.setItem("my_songbook", JSON.stringify(my_songbook));
 	$("#my_songbook_set").hide();
 	$("#my_songbook_delete").show();
@@ -1302,7 +1302,7 @@ function song_favorite_post(){
 		var song_name   = 'Imprisoned XII';
 		var artist_name = 'Ave Mujica';
 		var score       = '';
-		var time        = '2026-01-07 02:53:24';
+		var time        = '2026-01-07 13:39:20';
 
 		if ( song_name.indexOf('初心者') !== -1 && score == '' ) {
 	      var num = 2;
@@ -1399,7 +1399,7 @@ function browsing_history_set(){
     browsing_history = JSON.parse(localStorage.getItem("browsing_history"));
     */
     var browsing_history = get_storage_history();
-        browsing_history['175119'] = "Imprisoned XII,Ave Mujica,1767722004";
+        browsing_history['175119'] = "Imprisoned XII,Ave Mujica,1767760760";
     	localStorage.setItem("browsing_history", JSON.stringify(browsing_history));
 
 	localStorage.setItem("browsing_history_on", 'true');
@@ -1431,7 +1431,7 @@ function browsing_history_post(){
         var artist_name = 'Ave Mujica';
         var lyrics      = 'Diggy-MO\'';
         var music       = '松坂康司, Diggy-MO\'';
-        var time        = '2026-01-07 02:53:24';
+        var time        = '2026-01-07 13:39:20';
 
         $.ajax({
             url: '/web_api/browsing_history_post.php',

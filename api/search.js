@@ -2,19 +2,59 @@
  * 搜索聚合 API
  * 调用 Google Custom Search API，返回标注谱类型的结果
  * 
- * 站点优先级（按成功率分级）：
- * - 第一梯队：j-total.net, chordwiki.jpn.org（最高权重）
- * - 第二梯队：ufret.jp（可用，失败即降权）
+ * 站点优先级（按可解析性分级）：
+ * - 第一梯队：j-total.net, ufret.jp（可解析，最高权重）
+ * - 第二梯队：chordwiki.jpn.org（需验证，仅跳转）
  * - 第三梯队：ultimate-guitar.com, songsterr.com（仅跳转）
+ * 
+ * 注意：确保 Google CSE 白名单包含日本站点 (j-total.net/*, ufret.jp/*)
  */
 
 import { inferTypeFromTitle, isParseable, TabType, getSiteConfig, getSitePriority } from './lib/parser.js';
 import { SITE_CONFIG, ParseMode } from './lib/siteConfig.js';
 
-// 从配置表动态生成白名单（按优先级排序）
-const TRUSTED_DOMAINS = Object.entries(SITE_CONFIG)
-    .sort((a, b) => b[1].priority - a[1].priority)
-    .map(([domain]) => domain);
+// 可解析域名优先级表（分数越高越靠前）
+const PARSE_PRIORITY = {
+    'j-total.net': 100,
+    'ufret.jp': 90,
+    'chordwiki.jpn.org': 10,      // 有真人验证：只做跳转
+    'ultimate-guitar.com': 5,     // Cloudflare：只跳转
+    'songsterr.com': 5
+};
+
+/**
+ * 从 URL 提取主机名
+ */
+function hostOf(url) {
+    try {
+        return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * 检测 query 是否包含日文字符
+ */
+function hasJapanese(text) {
+    return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+}
+
+/**
+ * 构建搜索关键词
+ * 日文输入：加 "コード" 或 "ギター"
+ * 英文输入：加 "chords"
+ */
+function buildSearchQuery(q) {
+    const trimmed = q.trim();
+    if (hasJapanese(trimmed)) {
+        // 日文：加日文关键词
+        return `${trimmed} コード`;
+    } else {
+        // 英文/其他：加英文关键词
+        return `${trimmed} guitar chords`;
+    }
+}
 
 export default async function handler(req, res) {
     // 设置 CORS
@@ -40,8 +80,9 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Missing API configuration' });
         }
 
-        // 调用 Google Custom Search API
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(q + ' guitar tab OR guitar chords')}&num=10`;
+        // 构建搜索关键词（日文/英文自动适配）
+        const searchQuery = buildSearchQuery(q);
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(searchQuery)}&num=10`;
 
         const response = await fetch(searchUrl);
         const data = await response.json();
@@ -51,33 +92,35 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Search API error', details: data.error.message });
         }
 
-        // 解析并排序结果
+        // 解析结果
         const results = (data.items || []).map(item => {
             const url = item.link;
-            const domain = new URL(url).hostname.replace('www.', '');
+            const host = hostOf(url);
             const type = inferTypeFromTitle(item.title, item.snippet || '');
             const parseable = isParseable(url);
 
             // 从标题提取歌名和艺术家
             const { title, artist } = extractTitleArtist(item.title);
 
-            // 提取关键信息（Capo、调性等）
+            // 提取关键信息
             const info = extractInfo(item.snippet || '', type);
+
+            // 计算排序分数
+            const score = calculateScore(host, type, parseable);
 
             return {
                 title,
                 artist,
                 type,
                 info,
-                source: domain,
+                source: host,
                 url,
                 parseable,
-                // 用于排序的分数
-                score: calculateScore(type, parseable, domain, url)
+                score
             };
         });
 
-        // 按分数排序（高分在前）
+        // 按分数排序（高分在前 = 可解析优先）
         results.sort((a, b) => b.score - a.score);
 
         // 移除分数字段
@@ -95,33 +138,37 @@ export default async function handler(req, res) {
  * 从标题提取歌名和艺术家
  */
 function extractTitleArtist(rawTitle) {
-    // 常见格式：
-    // "Song Name by Artist - Site"
-    // "Artist - Song Name Tab"
-    // "Song Name Chords by Artist"
-
     let title = rawTitle;
     let artist = '';
 
     // 移除站点名称
-    title = title.replace(/\s*[-–|]\s*(Ultimate Guitar|Songsterr|Chordify|Tabs|Tab|Chords?).*$/i, '');
+    title = title.replace(/\s*[-–|]\s*(Ultimate Guitar|Songsterr|Chordify|Tabs|Tab|Chords?|J-Total|U-?Fret).*$/i, '');
 
-    // 提取 "by Artist"
+    // 日文格式: 歌名（艺术家）
+    const jpMatch = title.match(/^(.+?)（(.+?)）/);
+    if (jpMatch) {
+        title = jpMatch[1].trim();
+        artist = jpMatch[2].trim();
+        return { title, artist };
+    }
+
+    // 英文格式: "by Artist"
     const byMatch = title.match(/(.+?)\s+by\s+(.+)/i);
     if (byMatch) {
         title = byMatch[1].trim();
         artist = byMatch[2].trim();
-    } else {
-        // 尝试 "Artist - Song" 格式
-        const dashMatch = title.match(/(.+?)\s*[-–]\s*(.+)/);
-        if (dashMatch) {
-            artist = dashMatch[1].trim();
-            title = dashMatch[2].trim();
-        }
+        return { title, artist };
+    }
+
+    // 格式: "Artist - Song"
+    const dashMatch = title.match(/(.+?)\s*[-–]\s*(.+)/);
+    if (dashMatch) {
+        artist = dashMatch[1].trim();
+        title = dashMatch[2].trim();
     }
 
     // 清理标题中的类型标记
-    title = title.replace(/\s*(chord|chords|tab|tabs|guitar|acoustic|fingerstyle)\s*/gi, ' ').trim();
+    title = title.replace(/\s*(chord|chords|tab|tabs|guitar|acoustic|fingerstyle|コード|ギター)\s*/gi, ' ').trim();
 
     return { title, artist };
 }
@@ -132,7 +179,6 @@ function extractTitleArtist(rawTitle) {
 function extractInfo(snippet, type) {
     const parts = [];
 
-    // 添加谱类型
     if (type !== TabType.UNKNOWN) {
         parts.push(type);
     }
@@ -154,37 +200,31 @@ function extractInfo(snippet, type) {
 
 /**
  * 计算排序分数
- * 使用站点配置的优先级进行更精准的排序
+ * 可解析域名优先级最高
  */
-function calculateScore(type, parseable, domain, url) {
+function calculateScore(host, type, parseable) {
     let score = 0;
 
-    // 可解析性（最高权重）
+    // 1. 域名优先级（最高权重）
+    score += PARSE_PRIORITY[host] ?? 0;
+
+    // 2. 可解析性加成
     if (parseable) {
-        score += 100;
+        score += 50;
     }
 
-    // 谱类型
+    // 3. 谱类型加成
     switch (type) {
         case TabType.CHORD:
-            score += 40;
-            break;
-        case TabType.FINGERSTYLE:
-            score += 30;
-            break;
-        case TabType.TAB:
             score += 20;
             break;
-        default:
-            score += 0;
-    }
-
-    // 来源可信度 - 使用站点配置的优先级
-    const siteConfig = getSiteConfig(`https://${domain}`);
-    if (siteConfig) {
-        score += siteConfig.priority;
+        case TabType.FINGERSTYLE:
+            score += 15;
+            break;
+        case TabType.TAB:
+            score += 10;
+            break;
     }
 
     return score;
 }
-
