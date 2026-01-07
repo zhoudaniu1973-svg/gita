@@ -1,7 +1,14 @@
 /**
  * 谱面解析器 - 从 HTML 提取吉他谱文本
  * 支持多站点规则，识别谱类型和元信息
+ * 
+ * 解析策略按成功率分级：
+ * - 第一梯队：j-total.net, chordwiki.jpn.org（服务端解析，最高权重）
+ * - 第二梯队：ufret.jp（服务端解析，失败即降权）
+ * - 第三梯队：ultimate-guitar.com, songsterr.com（仅跳转）
  */
+
+import { getSiteConfig, ParseMode, validateContent } from './siteConfig.js';
 
 /**
  * 谱类型枚举
@@ -26,19 +33,58 @@ const CHORD_REGEX = /\b[A-G][#b]?(m|maj|min|dim|aug|sus|add|M)?[0-9]?(\([^)]*\))
  */
 export function parseTabFromHtml(html, url) {
     const domain = new URL(url).hostname.replace('www.', '');
+    const siteConfig = getSiteConfig(url);
+
+    // 如果是仅跳转模式，返回空结果
+    if (siteConfig?.parseMode === ParseMode.REDIRECT) {
+        return {
+            title: extractTitleFromHtml(html),
+            artist: '',
+            type: TabType.UNKNOWN,
+            content: '',
+            capo: null,
+            key: null,
+            parseable: false,
+            redirectOnly: true,
+            message: '此站点需要在原网页查看'
+        };
+    }
 
     // 根据域名选择解析策略
+    // 按成功率排序：第一梯队 > 第二梯队 > 通用
     const parsers = {
+        // 第一梯队：强烈推荐
+        'j-total.net': parseJTotal,
+        'chordwiki.jpn.org': parseChordWiki,
+        // 第二梯队：可用但要容错
+        'ufret.jp': parseUFret,
+        'gakufu.gakki.me': parseGeneric,
+        // 英文站点
         'ultimate-guitar.com': parseUltimateGuitar,
         'songsterr.com': parseSongsterr,
         'chordify.net': parseChordify,
-        'music.j-total.net': parseJTotal,
-        'u-fret.com': parseUFret,
         'guitartabs.cc': parseGuitarTabsCc,
     };
 
-    const parser = parsers[domain] || parseGeneric;
-    return parser(html, url);
+    // 优先精确匹配
+    let parser = parsers[domain];
+
+    // 子域名匹配（如 music.j-total.net）
+    if (!parser) {
+        for (const [key, fn] of Object.entries(parsers)) {
+            if (domain.includes(key)) {
+                parser = fn;
+                break;
+            }
+        }
+    }
+
+    const result = (parser || parseGeneric)(html, url);
+
+    // 添加内容验证信息
+    result.validation = validateContent(result.content);
+
+    return result;
 }
 
 /**
@@ -241,33 +287,194 @@ function parseJTotal(html) {
 }
 
 /**
+ * ChordWiki 解析器 (chordwiki.jpn.org)
+ * 第一梯队站点 - 日文和弦谱 Wiki，DOM 稳定，文本清晰
+ */
+function parseChordWiki(html) {
+    let content = '';
+    let title = '';
+    let artist = '';
+
+    // 提取标题（通常在 <title> 或 <h1>）
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+    if (titleMatch) {
+        // ChordWiki 格式通常是 "歌名 - 艺术家 - ChordWiki" 或类似
+        const parts = titleMatch[1].split(/[-–]/);
+        title = parts[0]?.trim() || '';
+        artist = parts[1]?.trim().replace(/ChordWiki.*$/i, '').trim() || '';
+    }
+
+    // 尝试从 <h1> 提取更精确的标题
+    const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (h1Match) {
+        title = stripHtml(h1Match[1]);
+    }
+
+    // ChordWiki 的和弦谱通常在 <pre> 标签或特定 class 的 div 中
+    // 方法1: 从 <pre> 提取
+    const preMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/gi);
+    if (preMatch && preMatch.length > 0) {
+        content = preMatch
+            .map(p => stripHtml(p.replace(/<\/?pre[^>]*>/gi, '')))
+            .join('\n\n');
+    }
+
+    // 方法2: 如果没有 <pre>，尝试从 wiki 内容区域提取
+    if (!content) {
+        const wikiMatch = html.match(/<div[^>]*class="[^"]*(?:wiki|content|chord)[^"]*"[^>]*>([\s\S]*?)<\/div>/gi);
+        if (wikiMatch) {
+            content = wikiMatch
+                .map(w => stripHtml(w))
+                .filter(text => {
+                    // 过滤掉太短的内容
+                    return text.split('\n').length > 5;
+                })
+                .join('\n\n');
+        }
+    }
+
+    // 方法3: 提取所有看起来像和弦行的内容
+    if (!content) {
+        // 匹配包含和弦的行
+        const lines = html.replace(/<br\s*\/?>/gi, '\n').split('\n');
+        const chordLines = lines.filter(line => {
+            const stripped = stripHtml(line);
+            return /[A-G][#b]?(m|maj|min|dim|aug|sus)?[0-9]?/.test(stripped);
+        });
+        if (chordLines.length > 10) {
+            content = chordLines.map(l => stripHtml(l)).join('\n');
+        }
+    }
+
+    return {
+        title: title || 'Unknown',
+        artist: artist || '',
+        type: detectTabType(content) || TabType.CHORD, // 默认和弦谱
+        content: content.trim(),
+        capo: extractCapo(html),
+        key: extractKey(content),
+        parseable: content.length > 50,
+        source: 'chordwiki.jpn.org'
+    };
+}
+
+/**
  * U-Fret 解析器（日文站）
+ * 第二梯队 - 新歌多，但广告多/DOM 易变，失败即降权
  */
 function parseUFret(html) {
     let content = '';
     let title = '';
     let artist = '';
 
-    // 提取标题和艺术家
-    const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    // 首先移除所有 script 和 style 标签内容
+    const cleanHtml = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<!--[\s\S]*?-->/g, '');
+
+    // 提取标题
+    const titleMatch = cleanHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
     if (titleMatch) {
         title = stripHtml(titleMatch[1]);
     }
 
-    const artistMatch = html.match(/<p[^>]*class="[^"]*artist[^"]*"[^>]*>([^<]+)<\/p>/i);
+    // 尝试从 title 标签提取
+    if (!title) {
+        const pageTitleMatch = cleanHtml.match(/<title>([^<]+)<\/title>/i);
+        if (pageTitleMatch) {
+            // U-Fret 格式: "歌名 / 艺术家"
+            const parts = pageTitleMatch[1].split(/[\/|]/);
+            title = parts[0]?.trim() || '';
+            if (!artist && parts[1]) {
+                artist = parts[1].trim().replace(/U-?FRET.*$/i, '').trim();
+            }
+        }
+    }
+
+    // 提取艺术家
+    const artistMatch = cleanHtml.match(/<p[^>]*class="[^"]*artist[^"]*"[^>]*>([^<]+)<\/p>/i);
     if (artistMatch) {
         artist = stripHtml(artistMatch[1]);
     }
 
-    // U-Fret 的谱面在特定 div 中
-    const chordMatch = html.match(/<div[^>]*class="[^"]*chord[^"]*"[^>]*>([\s\S]*?)<\/div>/gi);
-    if (chordMatch) {
-        content = chordMatch
-            .map(c => stripHtml(c))
-            .join('\n');
+    // 尝试从 a 标签提取艺术家
+    if (!artist) {
+        const artistLinkMatch = cleanHtml.match(/<a[^>]*href="[^"]*artist[^"]*"[^>]*>([^<]+)<\/a>/i);
+        if (artistLinkMatch) {
+            artist = stripHtml(artistLinkMatch[1]);
+        }
     }
 
+    // 方法1: 尝试从 #chord_area 或 .chord-area 提取
+    const chordAreaMatch = cleanHtml.match(/<div[^>]*(?:id="chord_area"|class="[^"]*chord[-_]?area[^"]*")[^>]*>([\s\S]*?)<\/div>/i);
+    if (chordAreaMatch) {
+        content = stripHtml(chordAreaMatch[1]);
+    }
+
+    // 方法2: 从包含 .chord 的 div 提取（但过滤掉太短的）
     if (!content) {
+        const chordDivs = cleanHtml.match(/<div[^>]*class="[^"]*chord[^"]*"[^>]*>([\s\S]*?)<\/div>/gi) || [];
+        const validChords = chordDivs
+            .map(div => stripHtml(div.replace(/<div[^>]*>/gi, '').replace(/<\/div>/gi, '')))
+            .filter(text => {
+                // 过滤掉看起来像 JS 代码的内容
+                if (text.includes('function') || text.includes('var ') || text.includes('append_dom')) {
+                    return false;
+                }
+                // 过滤掉太短的
+                return text.length > 10;
+            });
+
+        if (validChords.length > 0) {
+            content = validChords.join('\n');
+        }
+    }
+
+    // 方法3: 从 <pre> 标签提取（如果有）
+    if (!content) {
+        const preMatch = cleanHtml.match(/<pre[^>]*>([\s\S]*?)<\/pre>/gi);
+        if (preMatch && preMatch.length > 0) {
+            content = preMatch
+                .map(p => stripHtml(p.replace(/<\/?pre[^>]*>/gi, '')))
+                .filter(text => text.length > 20 && !text.includes('function'))
+                .join('\n\n');
+        }
+    }
+
+    // 方法4: 提取所有看起来像和弦行的内容
+    if (!content) {
+        const lines = cleanHtml.replace(/<br\s*\/?>/gi, '\n').split('\n');
+        const chordLines = lines
+            .map(line => stripHtml(line))
+            .filter(line => {
+                // 检查是否包含和弦
+                const hasChord = /[A-G][#b]?(m|maj|min|dim|aug|sus)?[0-9]?/.test(line);
+                // 过滤 JS 代码
+                const isNotCode = !line.includes('function') && !line.includes('var ') && !line.includes('+=');
+                return hasChord && isNotCode && line.length < 200;
+            });
+
+        if (chordLines.length > 10) {
+            content = chordLines.join('\n');
+        }
+    }
+
+    // 最终清理：移除任何残留的 JS 代码片段
+    content = content
+        .split('\n')
+        .filter(line => {
+            const trimmed = line.trim();
+            // 过滤掉 JS 代码行
+            if (trimmed.startsWith('var ') || trimmed.startsWith('let ') || trimmed.startsWith('const ')) return false;
+            if (trimmed.includes('function(') || trimmed.includes('=>')) return false;
+            if (trimmed.includes('append_dom') || trimmed.includes('document.')) return false;
+            if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return false;
+            return true;
+        })
+        .join('\n');
+
+    if (!content || content.length < 30) {
         return parseGeneric(html);
     }
 
@@ -276,9 +483,10 @@ function parseUFret(html) {
         artist: artist || '',
         type: TabType.CHORD,
         content: content.trim(),
-        capo: extractCapo(html),
+        capo: extractCapo(cleanHtml),
         key: extractKey(content),
-        parseable: content.length > 50
+        parseable: content.length > 50,
+        source: 'ufret.jp'
     };
 }
 
@@ -358,20 +566,24 @@ function stripHtml(html) {
 }
 
 /**
- * 判断 URL 是否可能可解析
+ * 判断 URL 是否可服务端解析
+ * 使用站点配置表进行判断
  */
 export function isParseable(url) {
-    const parseableDomains = [
-        'ultimate-guitar.com',
-        'music.j-total.net',
-        'u-fret.com',
-        'guitartabs.cc',
-        'azchords.com',
-        'chordie.com'
-    ];
+    const config = getSiteConfig(url);
+    // 只有 server 模式的站点才返回 true
+    return config?.parseMode === ParseMode.SERVER;
+}
 
-    const domain = new URL(url).hostname.replace('www.', '');
-    return parseableDomains.some(d => domain.includes(d));
+/**
+ * 从 HTML 提取标题（简化版，用于 redirect 模式）
+ */
+function extractTitleFromHtml(html) {
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+    if (titleMatch) {
+        return titleMatch[1].split(/[-–|]/)[0]?.trim() || 'Unknown';
+    }
+    return 'Unknown';
 }
 
 /**
@@ -392,3 +604,7 @@ export function inferTypeFromTitle(title, snippet) {
 
     return TabType.UNKNOWN;
 }
+
+// 导出站点配置相关函数供外部使用
+export { getSiteConfig, isServerParseable, getSitePriority, V1_WHITELIST } from './siteConfig.js';
+

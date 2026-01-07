@@ -1,21 +1,20 @@
 /**
  * 搜索聚合 API
  * 调用 Google Custom Search API，返回标注谱类型的结果
+ * 
+ * 站点优先级（按成功率分级）：
+ * - 第一梯队：j-total.net, chordwiki.jpn.org（最高权重）
+ * - 第二梯队：ufret.jp（可用，失败即降权）
+ * - 第三梯队：ultimate-guitar.com, songsterr.com（仅跳转）
  */
 
-import { inferTypeFromTitle, isParseable, TabType } from './lib/parser.js';
+import { inferTypeFromTitle, isParseable, TabType, getSiteConfig, getSitePriority } from './lib/parser.js';
+import { SITE_CONFIG, ParseMode } from './lib/siteConfig.js';
 
-// 白名单站点（优先排序）
-const TRUSTED_DOMAINS = [
-    'ultimate-guitar.com',
-    'music.j-total.net',
-    'u-fret.com',
-    'guitartabs.cc',
-    'azchords.com',
-    'chordie.com',
-    'songsterr.com',
-    'chordify.net'
-];
+// 从配置表动态生成白名单（按优先级排序）
+const TRUSTED_DOMAINS = Object.entries(SITE_CONFIG)
+    .sort((a, b) => b[1].priority - a[1].priority)
+    .map(([domain]) => domain);
 
 export default async function handler(req, res) {
     // 设置 CORS
@@ -74,7 +73,7 @@ export default async function handler(req, res) {
                 url,
                 parseable,
                 // 用于排序的分数
-                score: calculateScore(type, parseable, domain)
+                score: calculateScore(type, parseable, domain, url)
             };
         });
 
@@ -155,8 +154,9 @@ function extractInfo(snippet, type) {
 
 /**
  * 计算排序分数
+ * 使用站点配置的优先级进行更精准的排序
  */
-function calculateScore(type, parseable, domain) {
+function calculateScore(type, parseable, domain, url) {
     let score = 0;
 
     // 可解析性（最高权重）
@@ -179,11 +179,12 @@ function calculateScore(type, parseable, domain) {
             score += 0;
     }
 
-    // 来源可信度
-    const domainIndex = TRUSTED_DOMAINS.findIndex(d => domain.includes(d));
-    if (domainIndex !== -1) {
-        score += (TRUSTED_DOMAINS.length - domainIndex) * 5;
+    // 来源可信度 - 使用站点配置的优先级
+    const siteConfig = getSiteConfig(`https://${domain}`);
+    if (siteConfig) {
+        score += siteConfig.priority;
     }
 
     return score;
 }
+
