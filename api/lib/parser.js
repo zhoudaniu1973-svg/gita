@@ -253,9 +253,9 @@ function parseChordify(html) {
 
 /**
  * J-Total Music 解析器（日文站）
+ * 策略：<tt> + <pre> 双解析，选最长的候选文本块
  */
 function parseJTotal(html) {
-    let content = '';
     let title = '';
     let artist = '';
 
@@ -267,13 +267,47 @@ function parseJTotal(html) {
         artist = parts[1]?.trim() || '';
     }
 
-    // J-Total 使用 <pre> 存放谱
-    const preMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/gi);
-    if (preMatch) {
-        content = preMatch
-            .map(p => stripHtml(p.replace(/<\/?pre[^>]*>/gi, '')))
-            .join('\n\n');
+    // 从更精确的位置提取标题和艺术家
+    // J-Total 格式通常是: 歌名（艺术家） / コード譜 / ギター
+    const titleParts = (titleMatch?.[1] || '').split(/[\/|]/);
+    if (titleParts.length >= 1) {
+        const mainPart = titleParts[0].trim();
+        // 匹配 "歌名（艺术家）" 格式
+        const parenMatch = mainPart.match(/^(.+?)（(.+?)）$/);
+        if (parenMatch) {
+            title = parenMatch[1].trim();
+            artist = parenMatch[2].trim();
+        } else {
+            title = mainPart;
+        }
     }
+
+    // 收集所有候选文本块
+    const candidates = [];
+
+    // 方法1: 从 <tt> 标签提取（J-Total 主要使用这个）
+    const ttMatches = html.match(/<tt\b[^>]*>([\s\S]*?)<\/tt>/gi) || [];
+    for (const block of ttMatches) {
+        const m = block.match(/<tt\b[^>]*>([\s\S]*?)<\/tt>/i);
+        if (m?.[1]) {
+            candidates.push(htmlToTextBlock(m[1]));
+        }
+    }
+
+    // 方法2: 从 <pre> 标签提取（兜底）
+    const preMatches = html.match(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi) || [];
+    for (const block of preMatches) {
+        const m = block.match(/<pre\b[^>]*>([\s\S]*?)<\/pre>/i);
+        if (m?.[1]) {
+            candidates.push(htmlToTextBlock(m[1]));
+        }
+    }
+
+    // 选择最长且足够长的文本块（至少 200 字符）
+    const content = candidates
+        .map(t => t.trim())
+        .filter(t => t.length >= 200)
+        .sort((a, b) => b.length - a.length)[0] || '';
 
     return {
         title: title || 'Unknown',
@@ -282,8 +316,32 @@ function parseJTotal(html) {
         content: content.trim(),
         capo: extractCapo(html),
         key: extractKey(content),
-        parseable: content.length > 50
+        parseable: content.length > 50,
+        source: 'j-total.net'
     };
+}
+
+/**
+ * HTML 片段转纯文本块（用于 J-Total 解析）
+ * br -> 换行，去标签，解实体，压缩空行
+ */
+function htmlToTextBlock(htmlFragment) {
+    let s = htmlFragment
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+
+    // 压缩空行
+    s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    return s;
 }
 
 /**
@@ -360,121 +418,39 @@ function parseChordWiki(html) {
 
 /**
  * U-Fret 解析器（日文站）
- * 第二梯队 - 新歌多，但广告多/DOM 易变，失败即降权
+ * 策略：从 <script> 标签扫描提取 ChordPro 格式数据（[Am]歌詞[G]歌詞）
+ * 不依赖具体变量名，只寻找包含和弦标记的字符串
  */
 function parseUFret(html) {
-    let content = '';
     let title = '';
     let artist = '';
 
-    // 首先移除所有 script 和 style 标签内容
-    const cleanHtml = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<!--[\s\S]*?-->/g, '');
-
-    // 提取标题
-    const titleMatch = cleanHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    // 从 title 标签提取标题和艺术家
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     if (titleMatch) {
-        title = stripHtml(titleMatch[1]);
-    }
-
-    // 尝试从 title 标签提取
-    if (!title) {
-        const pageTitleMatch = cleanHtml.match(/<title>([^<]+)<\/title>/i);
-        if (pageTitleMatch) {
-            // U-Fret 格式: "歌名 / 艺术家"
-            const parts = pageTitleMatch[1].split(/[\/|]/);
-            title = parts[0]?.trim() || '';
-            if (!artist && parts[1]) {
-                artist = parts[1].trim().replace(/U-?FRET.*$/i, '').trim();
-            }
+        // U-Fret 格式: "歌名 / 艺术家 ギターコード/ウクレレコード/ピアノコード - U-フレット"
+        const parts = titleMatch[1].split(/[\/|]/);
+        title = parts[0]?.trim() || '';
+        if (parts[1]) {
+            artist = parts[1].trim()
+                .replace(/ギター.*$/i, '')
+                .replace(/U-?FRET.*$/i, '')
+                .replace(/コード.*$/i, '')
+                .trim();
         }
     }
 
-    // 提取艺术家
-    const artistMatch = cleanHtml.match(/<p[^>]*class="[^"]*artist[^"]*"[^>]*>([^<]+)<\/p>/i);
-    if (artistMatch) {
-        artist = stripHtml(artistMatch[1]);
+    // 从 h1 提取更精确的标题
+    const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (h1Match) {
+        title = stripHtml(h1Match[1]);
     }
 
-    // 尝试从 a 标签提取艺术家
-    if (!artist) {
-        const artistLinkMatch = cleanHtml.match(/<a[^>]*href="[^"]*artist[^"]*"[^>]*>([^<]+)<\/a>/i);
-        if (artistLinkMatch) {
-            artist = stripHtml(artistLinkMatch[1]);
-        }
-    }
+    // 从 script 标签中提取 ChordPro 格式的和弦数据
+    const content = extractChordProFromScripts(html);
 
-    // 方法1: 尝试从 #chord_area 或 .chord-area 提取
-    const chordAreaMatch = cleanHtml.match(/<div[^>]*(?:id="chord_area"|class="[^"]*chord[-_]?area[^"]*")[^>]*>([\s\S]*?)<\/div>/i);
-    if (chordAreaMatch) {
-        content = stripHtml(chordAreaMatch[1]);
-    }
-
-    // 方法2: 从包含 .chord 的 div 提取（但过滤掉太短的）
-    if (!content) {
-        const chordDivs = cleanHtml.match(/<div[^>]*class="[^"]*chord[^"]*"[^>]*>([\s\S]*?)<\/div>/gi) || [];
-        const validChords = chordDivs
-            .map(div => stripHtml(div.replace(/<div[^>]*>/gi, '').replace(/<\/div>/gi, '')))
-            .filter(text => {
-                // 过滤掉看起来像 JS 代码的内容
-                if (text.includes('function') || text.includes('var ') || text.includes('append_dom')) {
-                    return false;
-                }
-                // 过滤掉太短的
-                return text.length > 10;
-            });
-
-        if (validChords.length > 0) {
-            content = validChords.join('\n');
-        }
-    }
-
-    // 方法3: 从 <pre> 标签提取（如果有）
-    if (!content) {
-        const preMatch = cleanHtml.match(/<pre[^>]*>([\s\S]*?)<\/pre>/gi);
-        if (preMatch && preMatch.length > 0) {
-            content = preMatch
-                .map(p => stripHtml(p.replace(/<\/?pre[^>]*>/gi, '')))
-                .filter(text => text.length > 20 && !text.includes('function'))
-                .join('\n\n');
-        }
-    }
-
-    // 方法4: 提取所有看起来像和弦行的内容
-    if (!content) {
-        const lines = cleanHtml.replace(/<br\s*\/?>/gi, '\n').split('\n');
-        const chordLines = lines
-            .map(line => stripHtml(line))
-            .filter(line => {
-                // 检查是否包含和弦
-                const hasChord = /[A-G][#b]?(m|maj|min|dim|aug|sus)?[0-9]?/.test(line);
-                // 过滤 JS 代码
-                const isNotCode = !line.includes('function') && !line.includes('var ') && !line.includes('+=');
-                return hasChord && isNotCode && line.length < 200;
-            });
-
-        if (chordLines.length > 10) {
-            content = chordLines.join('\n');
-        }
-    }
-
-    // 最终清理：移除任何残留的 JS 代码片段
-    content = content
-        .split('\n')
-        .filter(line => {
-            const trimmed = line.trim();
-            // 过滤掉 JS 代码行
-            if (trimmed.startsWith('var ') || trimmed.startsWith('let ') || trimmed.startsWith('const ')) return false;
-            if (trimmed.includes('function(') || trimmed.includes('=>')) return false;
-            if (trimmed.includes('append_dom') || trimmed.includes('document.')) return false;
-            if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return false;
-            return true;
-        })
-        .join('\n');
-
-    if (!content || content.length < 30) {
+    if (!content || content.length < 100) {
+        // 如果从 script 提取失败，尝试通用解析器
         return parseGeneric(html);
     }
 
@@ -483,11 +459,77 @@ function parseUFret(html) {
         artist: artist || '',
         type: TabType.CHORD,
         content: content.trim(),
-        capo: extractCapo(cleanHtml),
+        capo: extractCapo(html),
         key: extractKey(content),
         parseable: content.length > 50,
         source: 'ufret.jp'
     };
+}
+
+/**
+ * 从 script 标签中提取 ChordPro 格式的和弦数据
+ * 策略：扫描所有 script 内容，寻找包含和弦标记 [A-G] 的字符串
+ */
+function extractChordProFromScripts(html) {
+    // 取所有 script 内容
+    const scripts = [];
+    html.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_, body) => {
+        if (body && body.length > 50) scripts.push(body);
+        return _;
+    });
+
+    // 收集包含和弦标记的字符串
+    const chunks = [];
+
+    for (const sc of scripts) {
+        // 提取双引号字符串（避免 eval）
+        const strMatches = sc.match(/"([^"\\]*(?:\\.[^"\\]*)*)"/g) || [];
+        for (const raw of strMatches) {
+            const inner = raw.slice(1, -1); // 去掉外层引号
+            const s = unescapeJsString(inner);
+            if (s.length < 20) continue;
+            if (looksLikeChordLine(s)) chunks.push(s);
+        }
+    }
+
+    // 去重并按长度排序
+    const uniqueChunks = [...new Set(chunks)];
+
+    // 聚合：取最长的若干条拼起来
+    const text = uniqueChunks
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 200)         // 防止把页面所有脚本字符串都吞进来
+        .reverse()             // 让顺序更接近原数组
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    return text;
+}
+
+/**
+ * 反转义 JavaScript 字符串中的常见转义序列
+ * 包括 Unicode 转义 \uXXXX
+ */
+function unescapeJsString(s) {
+    return s
+        // 先处理 Unicode 转义 \uXXXX
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\\\/g, '\\');
+}
+
+/**
+ * 判断字符串是否像和弦行
+ * 粗判断：包含 [C] / [Am] / [F#] / [G/B] 这类和弦标记
+ */
+function looksLikeChordLine(s) {
+    // 匹配常见和弦格式: [C], [Am], [F#], [Dm7], [G/B], [Cadd9] 等
+    return /\[[A-G](?:#|b)?(?:m|maj7?|m7|7|sus[24]?|dim|aug|add9?|M7)?(?:\/[A-G](?:#|b)?)?\]/.test(s);
 }
 
 /**
