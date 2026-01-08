@@ -125,3 +125,56 @@ export function isParseable(url) {
     const config = getSiteConfig(url);
     return config?.parseMode === ParseMode.SERVER || config?.parseMode === ParseMode.CLIENT;
 }
+
+/**
+ * 谱子格式枚举
+ */
+export const TabFormat = {
+    PDF: 'pdf',
+    GP: 'gp',         // Guitar Pro
+    HTML: 'html',     // 网页格式
+    VIDEO: 'video',   // 视频教程
+    MIXED: 'mixed',   // 混合格式
+    UNKNOWN: 'unknown'
+};
+
+/**
+ * 根据 URL 和标题检测谱子格式
+ */
+export function detectFormat(url, title = '') {
+    const urlLower = url.toLowerCase();
+    const titleLower = title.toLowerCase();
+
+    // PDF 格式
+    if (urlLower.includes('.pdf') || titleLower.includes('pdf')) {
+        return TabFormat.PDF;
+    }
+
+    // Guitar Pro 格式
+    if (urlLower.includes('.gp') || urlLower.includes('.gpx') ||
+        urlLower.includes('.gp5') || urlLower.includes('.gtp') ||
+        titleLower.includes('guitar pro') || titleLower.includes('gp tab')) {
+        return TabFormat.GP;
+    }
+
+    // 视频格式（YouTube 等）
+    if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be') ||
+        urlLower.includes('nicovideo.jp') || urlLower.includes('bilibili.com')) {
+        return TabFormat.VIDEO;
+    }
+
+    // 网页谱站点
+    if (urlLower.includes('ufret.jp') || urlLower.includes('j-total.net') ||
+        urlLower.includes('chordwiki') || urlLower.includes('ultimate-guitar') ||
+        urlLower.includes('songsterr')) {
+        return TabFormat.HTML;
+    }
+
+    // 根据标题判断
+    if (titleLower.includes('tab') || titleLower.includes('chord') ||
+        titleLower.includes('コード') || titleLower.includes('タブ譜')) {
+        return TabFormat.HTML;
+    }
+
+    return TabFormat.UNKNOWN;
+}
