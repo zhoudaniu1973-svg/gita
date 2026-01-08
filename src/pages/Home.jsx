@@ -139,27 +139,23 @@ export default function Home() {
                                 <p>{error}</p>
                             </div>
                         ) : searchResults.length > 0 ? (
-                            <>
-                                <div className="list">
-                                    {searchResults.map((result, index) => (
+                            <div className="list">
+                                {searchResults
+                                    .filter(result => !result.source.includes('youtube'))
+                                    .map((result, index) => (
                                         <SearchResultCard
                                             key={index}
                                             result={result}
                                             onOpen={() => handleOpenResult(result)}
                                         />
                                     ))}
-                                </div>
-                                {/* 快捷搜索 */}
-                                <FingerstyleQuickSearch query={searchQuery} />
-                            </>
+                            </div>
                         ) : (
                             <>
                                 <div className="empty-state">
                                     <div className="empty-state-icon">📭</div>
                                     <p>未找到结果</p>
                                 </div>
-                                {/* 快捷搜索 */}
-                                <FingerstyleQuickSearch query={searchQuery} />
                             </>
                         )}
                     </div>
@@ -294,76 +290,4 @@ function getFormatInfo(format) {
         default:
             return { icon: '📄', label: 'Tab', color: '#95a5a6' };
     }
-}
-
-/**
- * 指弹谱快捷搜索组件
- */
-function FingerstyleQuickSearch({ query }) {
-    const sites = [
-        {
-            name: 'YouTube',
-            icon: '🎬',
-            description: '指弹作者首发',
-            getUrl: (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q + ' fingerstyle guitar')}`
-        },
-        {
-            name: 'Guitar One',
-            icon: '🎸',
-            description: '日本指弹社区',
-            getUrl: (q) => `https://www.guitarone.jp/search/?q=${encodeURIComponent(q)}`
-        },
-        {
-            name: 'Google JP',
-            icon: '🔍',
-            description: '日本站点',
-            getUrl: (q) => `https://www.google.co.jp/search?q=${encodeURIComponent(q + ' 指弾き TAB')}`
-        }
-    ];
-
-    if (!query?.trim()) return null;
-
-    return (
-        <div style={{
-            marginTop: '24px',
-            padding: '16px',
-            background: 'var(--bg-secondary)',
-            borderRadius: '12px'
-        }}>
-            <div style={{
-                marginBottom: '12px',
-                fontSize: '14px',
-                color: 'var(--text-muted)'
-            }}>
-                🎸 更多搜索「{query}」
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {sites.map((site) => (
-                    <a
-                        key={site.name}
-                        href={site.getUrl(query)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary"
-                        style={{
-                            textDecoration: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                        }}
-                    >
-                        <span>{site.icon}</span>
-                        <span>{site.name}</span>
-                    </a>
-                ))}
-            </div>
-            <p style={{
-                marginTop: '8px',
-                fontSize: '12px',
-                color: 'var(--text-muted)'
-            }}>
-                💡 提示：找到谱子后，点击 ➕ 手动导入保存
-            </p>
-        </div>
-    );
 }

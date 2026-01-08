@@ -41,18 +41,6 @@ export const TabFormat = {
  */
 export const SITE_CONFIG = {
     // ========================
-    // YouTube - 指弹作者首发地
-    // ========================
-    'youtube.com': {
-        parseMode: ParseMode.REDIRECT,
-        format: TabFormat.VIDEO,
-        priority: 100,
-        type: 'Fingerstyle',
-        lang: 'multi',
-        notes: '通过 description 获取 PDF/TAB/GP 链接'
-    },
-
-    // ========================
     // 日本指弹专门站
     // ========================
     'fingerstyle-guitar.jp': {
