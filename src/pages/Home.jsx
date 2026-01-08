@@ -87,7 +87,7 @@ export default function Home() {
         <div className="page">
             {/* 头部 */}
             <header className="header">
-                <h1 className="header-title">🎸 指弹谱</h1>
+                <h1 className="header-title">🎸 GuitarTab</h1>
                 <button
                     className="btn-icon"
                     onClick={toggleDarkMode}
@@ -140,15 +140,13 @@ export default function Home() {
                             </div>
                         ) : searchResults.length > 0 ? (
                             <div className="list">
-                                {searchResults
-                                    .filter(result => !result.source.includes('youtube'))
-                                    .map((result, index) => (
-                                        <SearchResultCard
-                                            key={index}
-                                            result={result}
-                                            onOpen={() => handleOpenResult(result)}
-                                        />
-                                    ))}
+                                {searchResults.map((result, index) => (
+                                    <SearchResultCard
+                                        key={index}
+                                        result={result}
+                                        onOpen={() => handleOpenResult(result)}
+                                    />
+                                ))}
                             </div>
                         ) : (
                             <>

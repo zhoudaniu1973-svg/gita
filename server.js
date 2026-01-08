@@ -35,16 +35,16 @@ function hasJapanese(text) {
 }
 
 /**
- * 构建搜索关键词（指弹谱优化）
+ * 构建搜索关键词（日文/英文自动适配）
  */
 function buildSearchQuery(q) {
     const trimmed = q.trim();
     if (hasJapanese(trimmed)) {
-        // 日文：指弹相关关键词
-        return `${trimmed} 指弾き ソロギター TAB`;
+        // 日文：加日文关键词（和弦谱为主）
+        return `${trimmed} コード ギター`;
     } else {
-        // 英文/其他：fingerstyle + tab
-        return `${trimmed} fingerstyle tab`;
+        // 英文/其他：加英文关键词
+        return `${trimmed} guitar chords tab`;
     }
 }
 
