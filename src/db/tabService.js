@@ -1,13 +1,20 @@
 import { db } from './database';
-import { normalizeText } from '../utils/chordParser';
 
 /**
- * 吉他谱服务 - 提供 CRUD 操作
+ * 简单文本归一化（用于搜索）
+ */
+function normalizeText(text) {
+    if (!text) return '';
+    return text.toLowerCase().trim();
+}
+
+/**
+ * 谱资产服务 - 提供 CRUD 操作
  */
 export const tabService = {
     /**
-     * 添加新的吉他谱
-     * @param {Object} tabData - 吉他谱数据
+     * 添加新的谱资产
+     * @param {Object} tabData - 谱资产数据
      * @returns {Promise<number>} 新增记录的 ID
      */
     async add(tabData) {
@@ -18,6 +25,9 @@ export const tabService = {
             normalizedTitle: normalizeText(tabData.title || ''),
             normalizedArtist: normalizeText(tabData.artist || ''),
             normalizedContent: normalizeText(tabData.content),
+            // 新增字段
+            format: tabData.format || 'html',
+            sourceUrl: tabData.sourceUrl || '',
             isFavorite: tabData.isFavorite || false,
             tags: tabData.tags || [],
             note: tabData.note || '',

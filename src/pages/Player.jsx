@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { tabService } from '../db/tabService';
-import { useSettings, FONT_SIZES } from '../context/SettingsContext';
-import ChordLine from '../components/ChordLine';
-import { getTransposeLabel } from '../utils/chordParser';
+import { useSettings } from '../context/SettingsContext';
 
 /**
- * 演奏页面
- * 等宽显示吉他谱，支持和弦高亮、转调、字号调节
+ * 演奏页面 - 指弹谱查看器
+ * 原样显示 Tab 谱，支持字号调节和收藏
  */
 export default function Player() {
     const { id } = useParams();
@@ -15,11 +13,10 @@ export default function Player() {
     const { isDarkMode, toggleDarkMode, fontSize, cycleFontSize } = useSettings();
 
     const [tab, setTab] = useState(null);
-    const [transpose, setTranspose] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [isFavorite, setIsFavorite] = useState(false);
 
-    // 加载吉他谱
+    // 加载谱资产
     useEffect(() => {
         loadTab();
     }, [id]);
@@ -31,7 +28,6 @@ export default function Player() {
                 setTab(data);
                 setIsFavorite(data.isFavorite);
             } else {
-                // 吉他谱不存在，返回首页
                 navigate('/');
             }
         } catch (error) {
@@ -52,9 +48,9 @@ export default function Player() {
         }
     };
 
-    // 删除吉他谱
+    // 删除谱资产
     const handleDelete = async () => {
-        if (confirm('Are you sure you want to delete this tab?')) {
+        if (confirm('确定删除这个谱子吗？')) {
             try {
                 await tabService.delete(parseInt(id));
                 navigate('/');
@@ -64,15 +60,17 @@ export default function Player() {
         }
     };
 
-    // 转调控制
-    const handleTransposeUp = () => setTranspose(prev => prev + 1);
-    const handleTransposeDown = () => setTranspose(prev => prev - 1);
-    const handleTransposeReset = () => setTranspose(0);
+    // 打开原链接
+    const handleOpenSource = () => {
+        if (tab?.sourceUrl) {
+            window.open(tab.sourceUrl, '_blank');
+        }
+    };
 
     if (isLoading) {
         return (
             <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div>Loading...</div>
+                <div>加载中...</div>
             </div>
         );
     }
@@ -81,18 +79,20 @@ export default function Player() {
         return null;
     }
 
-    // 将内容按行分割
-    const lines = tab.content.split('\n');
+    // 获取格式图标
+    const formatIcon = getFormatIcon(tab.format);
 
     return (
         <div className="page">
             {/* 头部 */}
             <header className="header">
-                <Link to="/" className="btn-icon" title="Back">
+                <Link to="/" className="btn-icon" title="返回">
                     ←
                 </Link>
                 <div style={{ textAlign: 'center', flex: 1 }}>
-                    <h1 className="header-title" style={{ fontSize: '18px' }}>{tab.title}</h1>
+                    <h1 className="header-title" style={{ fontSize: '18px' }}>
+                        {formatIcon} {tab.title}
+                    </h1>
                     {tab.artist && (
                         <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{tab.artist}</p>
                     )}
@@ -100,7 +100,7 @@ export default function Player() {
                 <button
                     className="btn-icon"
                     onClick={handleToggleFavorite}
-                    title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    title={isFavorite ? '取消收藏' : '收藏'}
                 >
                     {isFavorite ? '⭐' : '☆'}
                 </button>
@@ -120,41 +120,39 @@ export default function Player() {
                 </div>
             )}
 
-            {/* 吉他谱内容 */}
+            {/* 谱内容 - 原样展示 */}
             <div className="tab-content mono fade-in">
-                {lines.map((line, index) => (
-                    <ChordLine key={index} line={line} transpose={transpose} />
-                ))}
+                <pre style={{
+                    fontFamily: 'monospace',
+                    fontSize: fontSize === 'small' ? '12px' : fontSize === 'large' ? '18px' : '14px',
+                    lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    margin: 0,
+                    padding: '16px'
+                }}>
+                    {tab.content}
+                </pre>
             </div>
 
             {/* 底部工具栏 */}
             <div className="toolbar">
-                {/* 转调控制 */}
-                <div className="toolbar-group">
-                    <button className="btn-icon" onClick={handleTransposeDown} title="Transpose down">
-                        ▼
-                    </button>
-                    <span
-                        style={{
-                            minWidth: '60px',
-                            textAlign: 'center',
-                            cursor: 'pointer'
-                        }}
-                        onClick={handleTransposeReset}
-                        title="Reset transpose"
+                {/* 原链接按钮（如果有） */}
+                {tab.sourceUrl && (
+                    <button
+                        className="btn-icon"
+                        onClick={handleOpenSource}
+                        title="查看原链接"
                     >
-                        {getTransposeLabel(transpose)}
-                    </span>
-                    <button className="btn-icon" onClick={handleTransposeUp} title="Transpose up">
-                        ▲
+                        🔗
                     </button>
-                </div>
+                )}
 
                 {/* 字号控制 */}
                 <button
                     className="btn-icon"
                     onClick={cycleFontSize}
-                    title={`Font size: ${fontSize}`}
+                    title={`字号: ${fontSize}`}
                 >
                     🔤
                 </button>
@@ -172,7 +170,7 @@ export default function Player() {
                 <button
                     className="btn-icon"
                     onClick={handleDelete}
-                    title="Delete tab"
+                    title="删除"
                     style={{ color: '#e63946' }}
                 >
                     🗑️
@@ -180,4 +178,17 @@ export default function Player() {
             </div>
         </div>
     );
+}
+
+/**
+ * 获取格式图标
+ */
+function getFormatIcon(format) {
+    switch (format) {
+        case 'pdf': return '📕';
+        case 'gp': return '🎸';
+        case 'video': return '🎬';
+        case 'html': return '📄';
+        default: return '📄';
+    }
 }

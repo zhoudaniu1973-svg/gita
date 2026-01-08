@@ -2,13 +2,11 @@
  * 谱面解析器 - 从 HTML 提取吉他谱文本
  * 支持多站点规则，识别谱类型和元信息
  * 
- * 解析策略按成功率分级：
- * - 第一梯队：j-total.net, chordwiki.jpn.org（服务端解析，最高权重）
- * - 第二梯队：ufret.jp（服务端解析，失败即降权）
- * - 第三梯队：ultimate-guitar.com, songsterr.com（仅跳转）
+ * 注意：指弹谱资产聚合器主要使用 redirect 模式
+ * 大部分站点不再需要服务端解析
  */
 
-import { getSiteConfig, ParseMode, validateContent } from './siteConfig.js';
+import { getSiteConfig, ParseMode } from './siteConfig.js';
 
 /**
  * 谱类型枚举
@@ -80,9 +78,6 @@ export function parseTabFromHtml(html, url) {
     }
 
     const result = (parser || parseGeneric)(html, url);
-
-    // 添加内容验证信息
-    result.validation = validateContent(result.content);
 
     return result;
 }
@@ -648,5 +643,4 @@ export function inferTypeFromTitle(title, snippet) {
 }
 
 // 导出站点配置相关函数供外部使用
-export { getSiteConfig, isServerParseable, getSitePriority, V1_WHITELIST } from './siteConfig.js';
-
+export { getSiteConfig, getSitePriority } from './siteConfig.js';

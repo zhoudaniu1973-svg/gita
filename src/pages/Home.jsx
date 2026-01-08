@@ -5,7 +5,7 @@ import TabCard from '../components/TabCard';
 import { useSettings } from '../context/SettingsContext';
 
 /**
- * 首页组件
+ * 首页组件 - 指弹谱资产聚合器
  * 在线搜索 + 本地收藏
  */
 export default function Home() {
@@ -19,7 +19,6 @@ export default function Home() {
     const [isSearching, setIsSearching] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [importingUrl, setImportingUrl] = useState(null);
 
     // 加载本地数据
     useEffect(() => {
@@ -71,53 +70,9 @@ export default function Home() {
         }
     };
 
-    // 导入搜索结果
-    const handleImport = async (result) => {
-        if (importingUrl) return; // 防止重复点击
-
-        setImportingUrl(result.url);
-
-        try {
-            const res = await fetch('/api/fetch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: result.url })
-            });
-
-            const data = await res.json();
-
-            console.log('Fetch API response:', data);
-
-            if (data.error || !data.content) {
-                // 解析失败，询问用户是否跳转
-                const shouldOpen = window.confirm(
-                    `无法自动解析此页面\n\n原因: ${data.error || '未提取到内容'}\n\n是否打开原网页手动查看？`
-                );
-                if (shouldOpen) {
-                    window.open(result.url, '_blank');
-                }
-                return;
-            }
-
-            // 保存到本地数据库
-            const id = await tabService.add({
-                title: data.title || result.title,
-                artist: data.artist || result.artist,
-                content: data.content,
-                tags: [result.type, result.source].filter(Boolean),
-                note: data.capo ? `Capo ${data.capo}` : ''
-            });
-
-            // 跳转到播放页
-            navigate(`/player/${id}`);
-
-        } catch (err) {
-            console.error('导入失败:', err);
-            // 失败时跳转到原网页
-            window.open(result.url, '_blank');
-        } finally {
-            setImportingUrl(null);
-        }
+    // 打开搜索结果（直接跳转到原站）
+    const handleOpenResult = (result) => {
+        window.open(result.url, '_blank');
     };
 
     // 清除搜索
@@ -132,7 +87,7 @@ export default function Home() {
         <div className="page">
             {/* 头部 */}
             <header className="header">
-                <h1 className="header-title">🎸 GuitarTab</h1>
+                <h1 className="header-title">🎸 指弹谱</h1>
                 <button
                     className="btn-icon"
                     onClick={toggleDarkMode}
@@ -150,7 +105,7 @@ export default function Home() {
                         <input
                             type="text"
                             className="input"
-                            placeholder="Search guitar tabs..."
+                            placeholder="搜索指弹谱（如：Ave Mujica）"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={handleKeyDown}
@@ -158,11 +113,11 @@ export default function Home() {
                     </div>
                     {isSearching ? (
                         <button className="btn btn-secondary" onClick={handleClearSearch}>
-                            ✕ Clear
+                            ✕ 清除
                         </button>
                     ) : (
                         <button className="btn btn-primary" onClick={handleSearch} disabled={!searchQuery.trim()}>
-                            🔍 Search
+                            🔍 搜索
                         </button>
                     )}
                     <Link to="/import" className="btn btn-secondary">
@@ -176,7 +131,7 @@ export default function Home() {
                         {isLoading ? (
                             <div className="empty-state">
                                 <div className="empty-state-icon">⏳</div>
-                                <p>Searching...</p>
+                                <p>搜索中...</p>
                             </div>
                         ) : error ? (
                             <div className="empty-state">
@@ -190,22 +145,21 @@ export default function Home() {
                                         <SearchResultCard
                                             key={index}
                                             result={result}
-                                            onImport={() => handleImport(result)}
-                                            isImporting={importingUrl === result.url}
+                                            onOpen={() => handleOpenResult(result)}
                                         />
                                     ))}
                                 </div>
-                                {/* 日文站点快捷搜索 */}
-                                <JapaneseTabSites query={searchQuery} />
+                                {/* 快捷搜索 */}
+                                <FingerstyleQuickSearch query={searchQuery} />
                             </>
                         ) : (
                             <>
                                 <div className="empty-state">
                                     <div className="empty-state-icon">📭</div>
-                                    <p>No results found</p>
+                                    <p>未找到结果</p>
                                 </div>
-                                {/* 日文站点快捷搜索 */}
-                                <JapaneseTabSites query={searchQuery} />
+                                {/* 快捷搜索 */}
+                                <FingerstyleQuickSearch query={searchQuery} />
                             </>
                         )}
                     </div>
@@ -215,7 +169,7 @@ export default function Home() {
                 {!isSearching && (
                     <>
                         {/* 最近打开 */}
-                        <div className="section-title">🕐 Recent</div>
+                        <div className="section-title">🕐 最近</div>
                         {recentTabs.length > 0 ? (
                             <div className="list">
                                 {recentTabs.map(tab => (
@@ -225,9 +179,9 @@ export default function Home() {
                         ) : (
                             <div className="empty-state">
                                 <div className="empty-state-icon">🎵</div>
-                                <p>No tabs yet</p>
+                                <p>暂无谱子</p>
                                 <p style={{ fontSize: '14px', marginTop: '8px' }}>
-                                    Search online or import a tab
+                                    搜索在线谱或手动导入
                                 </p>
                             </div>
                         )}
@@ -235,7 +189,7 @@ export default function Home() {
                         {/* 收藏列表 */}
                         {favoriteTabs.length > 0 && (
                             <>
-                                <div className="section-title" style={{ marginTop: '32px' }}>⭐ Favorites</div>
+                                <div className="section-title" style={{ marginTop: '32px' }}>⭐ 收藏</div>
                                 <div className="list">
                                     {favoriteTabs.map(tab => (
                                         <TabCard key={tab.id} tab={tab} />
@@ -252,24 +206,27 @@ export default function Home() {
 
 /**
  * 搜索结果卡片
- * 显示：歌名、歌手、谱类型+关键信息、来源
+ * 显示：歌名、歌手、格式图标、来源
  */
-function SearchResultCard({ result, onImport, isImporting }) {
-    const { title, artist, type, info, source, parseable } = result;
+function SearchResultCard({ result, onOpen }) {
+    const { title, artist, format, source, isYouTube, snippet } = result;
+
+    // 格式图标和标签
+    const formatInfo = getFormatInfo(format);
 
     return (
         <div
             className="card"
-            onClick={onImport}
-            style={{
-                cursor: isImporting ? 'wait' : 'pointer',
-                opacity: isImporting ? 0.7 : 1
-            }}
+            onClick={onOpen}
+            style={{ cursor: 'pointer' }}
         >
-            {/* 第一行：歌名 */}
-            <h3 className="card-title" style={{ marginBottom: '4px' }}>
-                {title || 'Unknown'}
-            </h3>
+            {/* 第一行：歌名 + 格式图标 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '18px' }}>{formatInfo.icon}</span>
+                <h3 className="card-title" style={{ margin: 0 }}>
+                    {title || 'Unknown'}
+                </h3>
+            </div>
 
             {/* 第二行：歌手 */}
             {artist && (
@@ -278,20 +235,17 @@ function SearchResultCard({ result, onImport, isImporting }) {
                 </p>
             )}
 
-            {/* 第三行：谱类型 + 关键信息 */}
+            {/* 第三行：格式标签 + YouTube 提示 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                 <span
                     className="tag"
-                    style={{
-                        backgroundColor: getTypeColor(type),
-                        opacity: parseable ? 1 : 0.6
-                    }}
+                    style={{ backgroundColor: formatInfo.color }}
                 >
-                    {info || type || 'Unknown'}
+                    {formatInfo.label}
                 </span>
-                {parseable && (
+                {isYouTube && (
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        ✓ 可导入
+                        💡 查看视频描述获取谱子
                     </span>
                 )}
             </div>
@@ -305,14 +259,17 @@ function SearchResultCard({ result, onImport, isImporting }) {
                 {source}
             </p>
 
-            {/* 导入中状态 */}
-            {isImporting && (
+            {/* 摘要预览（仅非YouTube） */}
+            {!isYouTube && snippet && (
                 <p style={{
                     fontSize: '12px',
-                    color: 'var(--accent-color)',
-                    marginTop: '8px'
+                    color: 'var(--text-muted)',
+                    marginTop: '8px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
                 }}>
-                    ⏳ Importing...
+                    {snippet}
                 </p>
             )}
         </div>
@@ -320,44 +277,47 @@ function SearchResultCard({ result, onImport, isImporting }) {
 }
 
 /**
- * 根据谱类型返回颜色
+ * 获取格式显示信息
  */
-function getTypeColor(type) {
-    switch (type) {
-        case 'Chord':
-            return '#4a90d9';
-        case 'Fingerstyle':
-            return '#9b59b6';
-        case 'Tab':
-            return '#27ae60';
+function getFormatInfo(format) {
+    switch (format) {
+        case 'pdf':
+            return { icon: '📕', label: 'PDF', color: '#e74c3c' };
+        case 'gp':
+            return { icon: '🎸', label: 'Guitar Pro', color: '#9b59b6' };
+        case 'video':
+            return { icon: '🎬', label: '视频', color: '#e67e22' };
+        case 'html':
+            return { icon: '📄', label: 'Tab', color: '#3498db' };
+        case 'mixed':
+            return { icon: '📦', label: '混合格式', color: '#27ae60' };
         default:
-            return '#95a5a6';
+            return { icon: '📄', label: 'Tab', color: '#95a5a6' };
     }
 }
 
 /**
- * 日文站点快捷搜索组件
- * 提供 U-Fret、ChordWiki 等日文吉他谱站点的直接搜索入口
+ * 指弹谱快捷搜索组件
  */
-function JapaneseTabSites({ query }) {
+function FingerstyleQuickSearch({ query }) {
     const sites = [
         {
-            name: 'U-Fret',
-            icon: '🇯🇵',
-            description: '日本最大吉他谱站',
-            getUrl: (q) => `https://www.ufret.jp/search.php?key=${encodeURIComponent(q)}`
+            name: 'YouTube',
+            icon: '🎬',
+            description: '指弹作者首发',
+            getUrl: (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q + ' fingerstyle guitar')}`
         },
         {
-            name: 'ChordWiki',
-            icon: '📖',
-            description: '和弦维基',
-            getUrl: (q) => `https://ja.chordwiki.org/wiki?c=search&t=${encodeURIComponent(q)}`
-        },
-        {
-            name: 'J-Total',
+            name: 'Guitar One',
             icon: '🎸',
-            description: '歌词+和弦',
-            getUrl: (q) => `https://music.j-total.net/search.cgi?word=${encodeURIComponent(q)}`
+            description: '日本指弹社区',
+            getUrl: (q) => `https://www.guitarone.jp/search/?q=${encodeURIComponent(q)}`
+        },
+        {
+            name: 'Google JP',
+            icon: '🔍',
+            description: '日本站点',
+            getUrl: (q) => `https://www.google.co.jp/search?q=${encodeURIComponent(q + ' 指弾き TAB')}`
         }
     ];
 
@@ -375,7 +335,7 @@ function JapaneseTabSites({ query }) {
                 fontSize: '14px',
                 color: 'var(--text-muted)'
             }}>
-                🇯🇵 在日文站点搜索「{query}」
+                🎸 更多搜索「{query}」
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {sites.map((site) => (
@@ -402,7 +362,7 @@ function JapaneseTabSites({ query }) {
                 fontSize: '12px',
                 color: 'var(--text-muted)'
             }}>
-                💡 提示：从日文站复制谱面内容后，点击 ➕ 手动导入
+                💡 提示：找到谱子后，点击 ➕ 手动导入保存
             </p>
         </div>
     );

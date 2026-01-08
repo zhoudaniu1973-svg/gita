@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// PWA 吉他谱应用配置
+// PWA 指弹谱应用配置
 export default defineConfig({
   plugins: [
     react(),
@@ -13,9 +13,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
       },
       manifest: {
-        name: 'Guitar Tab Player',
-        short_name: 'GuitarTab',
-        description: '吉他谱收藏与演奏应用',
+        name: '指弹谱资产聚合器',
+        short_name: '指弹谱',
+        description: '日本指弹吉他谱搜索与收藏',
         theme_color: '#1a1a2e',
         background_color: '#1a1a2e',
         display: 'standalone',
@@ -34,5 +34,14 @@ export default defineConfig({
         ]
       }
     })
-  ]
+  ],
+  // 开发服务器代理配置
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
+  }
 })
