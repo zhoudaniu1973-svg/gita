@@ -118,7 +118,17 @@ export default async function handler(req, res) {
  * 从标题提取歌名和艺术家
  */
 function extractTitleArtist(rawTitle) {
-    let title = rawTitle;
+    const cleanText = (text) => {
+        if (!text) return '';
+        return text
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+
+    let title = cleanText(rawTitle);
     let artist = '';
 
     // 移除站点名称
@@ -127,30 +137,30 @@ function extractTitleArtist(rawTitle) {
     // 日文格式: 歌名（艺术家）
     const jpMatch = title.match(/^(.+?)（(.+?)）/);
     if (jpMatch) {
-        title = jpMatch[1].trim();
-        artist = jpMatch[2].trim();
+        title = cleanText(jpMatch[1]);
+        artist = cleanText(jpMatch[2]);
         return { title, artist };
     }
 
     // 英文格式: "by Artist"
     const byMatch = title.match(/(.+?)\s+by\s+(.+)/i);
     if (byMatch) {
-        title = byMatch[1].trim();
-        artist = byMatch[2].trim();
+        title = cleanText(byMatch[1]);
+        artist = cleanText(byMatch[2]);
         return { title, artist };
     }
 
     // 格式: "Artist - Song"
     const dashMatch = title.match(/(.+?)\s*[-–]\s*(.+)/);
     if (dashMatch) {
-        artist = dashMatch[1].trim();
-        title = dashMatch[2].trim();
+        artist = cleanText(dashMatch[1]);
+        title = cleanText(dashMatch[2]);
     }
 
     // 清理标题中的类型标记
     title = title.replace(/\s*(fingerstyle|tab|tabs|guitar|acoustic|指弾き|ソロギター|TAB)\s*/gi, ' ').trim();
 
-    return { title, artist };
+    return { title: cleanText(title), artist: cleanText(artist) };
 }
 
 /**

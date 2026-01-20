@@ -88,9 +88,7 @@ export const tabService = {
      * 获取所有收藏的吉他谱
      */
     async getFavorites() {
-        // 使用 filter 因为 isFavorite 存储为 boolean
-        const allTabs = await db.tabs.toArray();
-        return allTabs.filter(tab => tab.isFavorite === true);
+        return await db.tabs.where('isFavorite').equals(true).toArray();
     },
 
     /**

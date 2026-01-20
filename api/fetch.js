@@ -3,6 +3,7 @@
  * 抓取目标 URL，解析并提取吉他谱文本
  */
 
+import iconv from 'iconv-lite';
 import { parseTabFromHtml } from './lib/parser.js';
 
 export default async function handler(req, res) {
@@ -66,16 +67,15 @@ export default async function handler(req, res) {
         }
 
         // 获取原始二进制数据以处理编码
-        const buffer = await response.arrayBuffer();
+        const buffer = Buffer.from(await response.arrayBuffer());
 
         // 检测编码（日本站点常用 Shift-JIS 或 EUC-JP）
-        let html = '';
         const contentType = response.headers.get('content-type') || '';
 
         // 从响应头检测编码
         let encoding = 'utf-8';
         if (contentType.includes('shift_jis') || contentType.includes('shift-jis')) {
-            encoding = 'shift-jis';
+            encoding = 'shift_jis';
         } else if (contentType.includes('euc-jp')) {
             encoding = 'euc-jp';
         }
@@ -85,27 +85,24 @@ export default async function handler(req, res) {
             encoding = 'shift-jis';
         }
 
-        // 使用 TextDecoder 解码
-        try {
-            const decoder = new TextDecoder(encoding);
-            html = decoder.decode(buffer);
-        } catch (e) {
-            // 如果解码失败，尝试从 HTML meta 标签检测
-            const decoder = new TextDecoder('utf-8', { fatal: false });
-            html = decoder.decode(buffer);
+        // 使用 iconv-lite 解码
+        const normalizeEncoding = (enc) => enc.toLowerCase().replace(/[_\s]/g, '-');
+        const decodeWithEncoding = (enc) => {
+            const normalized = normalizeEncoding(enc);
+            if (!iconv.encodingExists(normalized)) {
+                return iconv.decode(buffer, 'utf-8');
+            }
+            return iconv.decode(buffer, normalized);
+        };
 
-            // 检查 meta charset
-            const charsetMatch = html.match(/<meta[^>]*charset=["']?([^"'\s>]+)/i);
-            if (charsetMatch) {
-                const detectedEncoding = charsetMatch[1].toLowerCase();
-                if (detectedEncoding !== 'utf-8' && detectedEncoding !== 'utf8') {
-                    try {
-                        const newDecoder = new TextDecoder(detectedEncoding);
-                        html = newDecoder.decode(buffer);
-                    } catch {
-                        // 保持 UTF-8 解码结果
-                    }
-                }
+        let html = decodeWithEncoding(encoding);
+
+        // 从 HTML meta 标签检测编码并二次解码
+        const charsetMatch = html.match(/<meta[^>]*charset=["']?([^"'\s>]+)/i);
+        if (charsetMatch) {
+            const detectedEncoding = normalizeEncoding(charsetMatch[1]);
+            if (detectedEncoding !== normalizeEncoding(encoding) && iconv.encodingExists(detectedEncoding)) {
+                html = decodeWithEncoding(detectedEncoding);
             }
         }
 

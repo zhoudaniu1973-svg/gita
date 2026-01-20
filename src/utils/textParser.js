@@ -273,7 +273,6 @@ function shouldSkipLine(line) {
         /行削除/,
         // 版权
         /copyright/i,
-        /©/,
         /all rights reserved/i,
         /剽窃/,
         /禁止/,
